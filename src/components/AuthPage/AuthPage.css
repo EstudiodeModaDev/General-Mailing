@@ -1,0 +1,31 @@
+.auth-bg {
+  background:
+    radial-gradient(900px 500px at 15% 20%, rgba(79, 70, 229, 0.10), transparent 55%),
+    radial-gradient(700px 500px at 85% 10%, rgba(16, 185, 129, 0.10), transparent 55%),
+    radial-gradient(700px 500px at 70% 85%, rgba(99, 102, 241, 0.10), transparent 55%),
+    #f8fafc;
+}
+
+.auth-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(40px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.auth-orb-1 {
+  width: 320px;
+  height: 320px;
+  left: -80px;
+  top: -80px;
+  background: rgba(79, 70, 229, 0.25);
+}
+
+.auth-orb-2 {
+  width: 260px;
+  height: 260px;
+  right: -90px;
+  bottom: -90px;
+  background: rgba(16, 185, 129, 0.22);
+}
