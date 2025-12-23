@@ -43,8 +43,8 @@ export const msal = new PublicClientApplication({
 let initialized = false;
 
 /** Scopes centralizados para login/token */
-//export const SCOPES = ['openid', 'profile', 'email', 'User.Read', 'Sites.ReadWrite.All', 'Mail.Send'] as const;
-export const SCOPES = ['openid', 'profile', 'email', 'User.Read', 'Sites.ReadWrite.All'] as const;
+export const SCOPES = ['openid', 'profile', 'email', 'User.Read', 'Mail.Send'] as const;
+//export const SCOPES = ['openid', 'profile', 'email', 'User.Read', 'Sites.ReadWrite.All'] as const;
 
 /** Helpers de requests */
 const loginPopupRequest: PopupRequest = { scopes: [...SCOPES], prompt: 'select_account' };
