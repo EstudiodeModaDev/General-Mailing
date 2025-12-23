@@ -9,7 +9,7 @@ type AuthPageProps = {
   footerNote?: string;
 };
 
-export const AuthPage: React.FC<AuthPageProps> = ({appName = "MailPro", editionLabel = "Enterprise Edition", onCorporateLogin, corporateDomainHint = "@estudiodemoda.com.co", footerNote = "Acceso restringido a usuarios corporativos autorizados.",}) => {
+export const AuthPage: React.FC<AuthPageProps> = ({appName = "Mailing", editionLabel = "EDM Edition", onCorporateLogin, corporateDomainHint = "@estudiodemoda.com.co", footerNote = "Acceso restringido a usuarios corporativos autorizados.",}) => {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
