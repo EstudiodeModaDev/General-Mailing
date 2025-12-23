@@ -8,6 +8,7 @@ import { Step2Designer } from './components/Design/Design';
 import { PreviewModal } from './components/Preview/PreviewModal';
 import { Step3Send, type Log } from './components/Envio/Send';
 import { Step4AuditView } from './components/Log/Log';
+import { useGroupGate } from "./Funcionalidades/useGroupGate";
 
 type Step1Payload = {
   excelData: Record<string, any>[];
@@ -17,10 +18,15 @@ type Step1Payload = {
   varKeys: string[];
 };
 
+const GROUP_ID = "3a138500-8cda-44cc-9e48-6adf35714fd5";
+
+
 function Shell() {
   const { ready, account, signIn, signOut } = useAuth();
   const [loadingAuth, setLoadingAuth] = React.useState(false);
   const isLogged = Boolean(account);
+
+  const { loading: checking, allowed } = useGroupGate(GROUP_ID);
 
   const handleAuthClick = async () => {
     if (!ready || loadingAuth) return;
@@ -43,7 +49,19 @@ function Shell() {
     );
   }
 
-  return <LoggedApp  />;
+  // ya está logueado: valida grupo
+  if (checking) {
+    return <div className="page layout"><section className="page-view">Validando acceso…</section></div>;
+  }
+
+  if (!allowed) {
+    // 🔥 como pediste: no cargar nada
+    return null;
+    // o muestra algo:
+    // return <div className="page layout"><section className="page-view">No tienes acceso.</section></div>;
+  }
+
+  return <LoggedApp />;
 }
 
 function Stepper({ step }: { step: number }) {
