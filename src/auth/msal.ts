@@ -44,7 +44,7 @@ let initialized = false;
 
 /** Scopes centralizados para login/token */
 //export const SCOPES = ['openid', 'profile', 'email', 'User.Read', 'Sites.ReadWrite.All', 'Mail.Send'] as const;
-export const SCOPES = ['openid', 'profile', 'email', 'User.Read',] as const;
+export const SCOPES = ['openid', 'profile', 'email', 'User.Read', 'Sites.ReadWrite.All'] as const;
 
 /** Helpers de requests */
 const loginPopupRequest: PopupRequest = { scopes: [...SCOPES], prompt: 'select_account' };
@@ -134,31 +134,40 @@ export async function ensureLogin(mode: 'popup' | 'redirect' = 'redirect'): Prom
  *  3) si no hay sesión, también hace redirect.
  */
 export async function getAccessToken(opts?: {
-  interactionMode?: 'popup' | 'redirect'; // por defecto: 'popup'
+  interactionMode?: "popup" | "redirect"; // default popup
   silentExtraScopesToConsent?: string[];
-  forceSilent?: boolean; // si true, no intenta interacción, solo silent
+  forceSilent?: boolean;
+  noRedirect?: boolean; // si true, NUNCA hace redirect (lanza error)
 }): Promise<string> {
   await initMSAL();
-  const account = ensureActiveAccount();
+
+  let account = ensureActiveAccount();
+
+  // ---- si no hay sesión, toca login ----
   if (!account) {
-    // Sin sesión, fuerza login según modo
-    const mode = opts?.interactionMode ?? 'popup';
-    if (mode === 'popup') {
+    const mode = opts?.interactionMode ?? "popup";
+
+    if (mode === "popup") {
       try {
         const res = await msal.loginPopup(loginPopupRequest);
-        msal.setActiveAccount(res.account ?? null);
-      } catch {
+        account = res.account ?? ensureActiveAccount();
+        if (account) msal.setActiveAccount(account);
+      } catch (err) {
+        // ✅ aquí es donde antes recargabas
+        if (opts?.noRedirect) throw err;
         await msal.loginRedirect(loginRedirectRequest);
         return new Promise<string>(() => {});
       }
     } else {
+      // mode === "redirect"
+      if (opts?.noRedirect) throw new Error("No hay sesión y noRedirect=true. No se permite redirect.");
       await msal.loginRedirect(loginRedirectRequest);
       return new Promise<string>(() => {});
     }
   }
 
   const silentReq: SilentRequest = {
-    account: ensureActiveAccount()!, // puede haber cambiado tras login
+    account: ensureActiveAccount()!, // ya debería existir
     scopes: [...SCOPES, ...(opts?.silentExtraScopesToConsent ?? [])],
   };
 
@@ -166,24 +175,38 @@ export async function getAccessToken(opts?: {
     const res = await msal.acquireTokenSilent(silentReq);
     return res.accessToken;
   } catch (e) {
-    if (opts?.forceSilent) throw e; // solicitado explícitamente
+    if (opts?.forceSilent) throw e;
 
     if (e instanceof InteractionRequiredAuthError) {
-      const mode = opts?.interactionMode ?? 'popup';
-      if (mode === 'popup') {
+      const mode = opts?.interactionMode ?? "popup";
+
+      if (mode === "popup") {
         try {
-          const res = await msal.acquireTokenPopup({ scopes: [...SCOPES], account: silentReq.account });
+          const res = await msal.acquireTokenPopup({
+            scopes: [...SCOPES, ...(opts?.silentExtraScopesToConsent ?? [])],
+            account: silentReq.account,
+          });
           return res.accessToken;
         } catch (popupErr) {
-          console.warn('[MSAL] popup bloqueado/cancelado; fallback a redirect para token…', popupErr);
-          await msal.acquireTokenRedirect({ scopes: [...SCOPES], account: silentReq.account });
+          // ✅ tu parte está bien, solo que aquí también mete extraScopes
+          if (opts?.noRedirect) throw popupErr;
+          await msal.acquireTokenRedirect({
+            scopes: [...SCOPES, ...(opts?.silentExtraScopesToConsent ?? [])],
+            account: silentReq.account,
+          });
           return new Promise<string>(() => {});
         }
       } else {
-        await msal.acquireTokenRedirect({ scopes: [...SCOPES], account: silentReq.account });
+        // mode === redirect
+        if (opts?.noRedirect) throw e;
+        await msal.acquireTokenRedirect({
+          scopes: [...SCOPES, ...(opts?.silentExtraScopesToConsent ?? [])],
+          account: silentReq.account,
+        });
         return new Promise<string>(() => {});
       }
     }
+
     throw e;
   }
 }
@@ -242,3 +265,10 @@ function wireEventsOnce() {
 export function onMsalEvent(cb: (ev: EventMessage) => void): void {
   msal.addEventCallback(cb);
 }
+
+export function toShareIdFromUrl(webUrl: string): string {
+  const b64 = btoa(unescape(encodeURIComponent(webUrl))); // base64
+  const b64url = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return `u!${b64url}`;
+}
+

@@ -17,18 +17,59 @@ export type GraphSendMailPayload = {
   saveToSentItems?: boolean;
 };
 
+/* =========================
+   Error tipado Graph
+   ========================= */
+export class GraphHttpError extends Error {
+  status: number;
+  code?: string;
+  raw?: any;
+
+  constructor(message: string, status: number, code?: string, raw?: any) {
+    super(message);
+    this.name = "GraphHttpError";
+    this.status = status;
+    this.code = code;
+    this.raw = raw;
+  }
+}
+
 export class GraphRest {
   private getToken: () => Promise<string>;
-  private base = 'https://graph.microsoft.com/v1.0';
+  private base = "https://graph.microsoft.com/v1.0";
 
   constructor(getToken: () => Promise<string>, baseUrl?: string) {
     this.getToken = getToken;
     if (baseUrl) this.base = baseUrl;
   }
 
-  // Core: hace la llamada y parsea respuesta de forma segura (maneja 204/no content)
+  private async parseGraphError(res: Response): Promise<{
+    message: string;
+    code?: string;
+    raw: any;
+  }> {
+    let raw: any = null;
+
+    // Graph casi siempre responde JSON, pero a veces puede venir texto/html
+    const txt = await res.text().catch(() => "");
+    if (!txt) return { message: `${res.status} ${res.statusText}`, raw: txt };
+
+    try {
+      raw = JSON.parse(txt);
+      const code = raw?.error?.code ?? raw?.code;
+      const message =
+        raw?.error?.message ??
+        raw?.message ??
+        `${res.status} ${res.statusText}`;
+      return { message, code, raw };
+    } catch {
+      return { message: txt, raw: txt };
+    }
+  }
+
+  // Core
   private async call<T>(
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     body?: any,
     init?: RequestInit
@@ -40,77 +81,65 @@ export class GraphRest {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
-        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-        // Quita esta Prefer si no la necesitas
-        Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly',
+        ...(hasBody ? { "Content-Type": "application/json" } : {}),
+        Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
         ...(init?.headers || {}),
       },
       body: hasBody ? JSON.stringify(body) : undefined,
       ...init,
     });
 
-    // ---- Manejo de error con mensaje detallado de Graph ----
     if (!res.ok) {
-      let detail = '';
-      try {
-        const txt = await res.text();
-        if (txt) {
-          try {
-            const j = JSON.parse(txt);
-            detail = j?.error?.message || j?.message || txt;
-          } catch {
-            detail = txt;
-          }
-        }
-      } catch {}
-      throw new Error(`${method} ${path} → ${res.status} ${res.statusText}${detail ? `: ${detail}` : ''}`);
+      const { message, code, raw } = await this.parseGraphError(res);
+      throw new GraphHttpError(`${method} ${path}: ${message}`, res.status, code, raw);
     }
 
-    // ---- 204 No Content o respuesta vacía ----
     if (res.status === 204) return undefined as unknown as T;
 
-    // ---- Parseo seguro según content-type ----
-    const ct = res.headers.get('content-type') || '';
-    const txt = await res.text(); // evita error si está vacío
+    const ct = res.headers.get("content-type") || "";
+    const txt = await res.text().catch(() => "");
     if (!txt) return undefined as unknown as T;
 
-    if (ct.includes('application/json')) {
-      return JSON.parse(txt) as T;
-    }
-
-    // Si la respuesta no es JSON, retorna texto
+    if (ct.includes("application/json")) return JSON.parse(txt) as T;
     return txt as unknown as T;
   }
 
   async getBlob(path: string) {
-      const token = await this.getToken(); // mismo token que ya te sirve
-      const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
-      headers: { Authorization: `Bearer ${token}` }
+    const token = await this.getToken();
+    const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) throw new Error(`Graph ${res.status}`);
+
+    if (!res.ok) {
+      const { message, code, raw } = await this.parseGraphError(res);
+      throw new GraphHttpError(`GET (blob) ${path}: ${message}`, res.status, code, raw);
+    }
+
     return await res.blob();
   }
 
-  // Helpers públicos
   get<T = any>(path: string, init?: RequestInit) {
-    return this.call<T>('GET', path, undefined, init);
+    return this.call<T>("GET", path, undefined, init);
   }
 
   post<T = any>(path: string, body: any, init?: RequestInit) {
-    return this.call<T>('POST', path, body, init);
+    return this.call<T>("POST", path, body, init);
   }
 
   patch<T = any>(path: string, body: any, init?: RequestInit) {
-    // PATCH a /fields suele devolver 204; este call ya lo maneja
-    return this.call<T>('PATCH', path, body, init);
+    return this.call<T>("PATCH", path, body, init);
   }
 
   delete(path: string, init?: RequestInit) {
-    // DELETE típicamente devuelve 204 No Content
-    return this.call<void>('DELETE', path, undefined, init);
+    return this.call<void>("DELETE", path, undefined, init);
   }
 
-  async putBinary<T = any>(path: string,  binary: Blob | ArrayBuffer | Uint8Array, contentType?: string, init?: RequestInit): Promise<T> {
+  async putBinary<T = any>(
+    path: string,
+    binary: Blob | ArrayBuffer | Uint8Array,
+    contentType?: string,
+    init?: RequestInit
+  ): Promise<T> {
     const token = await this.getToken();
 
     const res = await fetch(this.base + path, {
@@ -125,36 +154,17 @@ export class GraphRest {
     });
 
     if (!res.ok) {
-      let detail = "";
-      try {
-        const txt = await res.text();
-        if (txt) {
-          try {
-            const j = JSON.parse(txt);
-            detail = j?.error?.message || j?.message || txt;
-          } catch {
-            detail = txt;
-          }
-        }
-      } catch {}
-
-      throw new Error(
-        `PUT ${path} → ${res.status} ${res.statusText}${
-          detail ? `: ${detail}` : ""
-        }`
-      );
+      const { message, code, raw } = await this.parseGraphError(res);
+      throw new GraphHttpError(`PUT ${path}: ${message}`, res.status, code, raw);
     }
 
     if (res.status === 204) return undefined as unknown as T;
 
     const ct = res.headers.get("content-type") || "";
-    const txt = await res.text();
+    const txt = await res.text().catch(() => "");
     if (!txt) return undefined as unknown as T;
 
-    if (ct.includes("application/json")) {
-      return JSON.parse(txt) as T;
-    }
-
+    if (ct.includes("application/json")) return JSON.parse(txt) as T;
     return txt as unknown as T;
   }
 
@@ -162,33 +172,27 @@ export class GraphRest {
     const token = await this.getToken();
 
     const res = await fetch(url, {
-      method: 'GET',
+      method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
-        Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly',
+        Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
         ...(init?.headers || {}),
       },
       ...init,
     });
 
     if (!res.ok) {
-      let detail = '';
-      try {
-        const txt = await res.text();
-        if (txt) {
-          try { detail = JSON.parse(txt)?.error?.message ?? JSON.parse(txt)?.message ?? txt; }
-          catch { detail = txt; }
-        }
-      } catch {}
-      throw new Error(`GET (absolute) ${url} → ${res.status} ${res.statusText}${detail ? `: ${detail}` : ''}`);
+      const { message, code, raw } = await this.parseGraphError(res);
+      throw new GraphHttpError(`GET (absolute) ${url}: ${message}`, res.status, code, raw);
     }
 
     if (res.status === 204) return undefined as unknown as T;
 
-    const ct = res.headers.get('content-type') ?? '';
-    const txt = await res.text();
+    const ct = res.headers.get("content-type") ?? "";
+    const txt = await res.text().catch(() => "");
     if (!txt) return undefined as unknown as T;
-    return ct.includes('application/json') ? JSON.parse(txt) as T : (txt as unknown as T);
+
+    return ct.includes("application/json") ? (JSON.parse(txt) as T) : (txt as unknown as T);
   }
 
   sendMail(fromUser: string, payload: GraphSendMailPayload) {
@@ -196,7 +200,12 @@ export class GraphRest {
     return this.post<void>(`/users/${encoded}/sendMail`, payload);
   }
 
-  async postAbsoluteBinary<T = any>(url: string, binary: Blob | ArrayBuffer | Uint8Array, contentType?: string, init?: RequestInit): Promise<T> {
+  async postAbsoluteBinary<T = any>(
+    url: string,
+    binary: Blob | ArrayBuffer | Uint8Array,
+    contentType?: string,
+    init?: RequestInit
+  ): Promise<T> {
     const token = await this.getToken();
 
     const res = await fetch(url, {
@@ -211,37 +220,17 @@ export class GraphRest {
     });
 
     if (!res.ok) {
-      let detail = "";
-      try {
-        const txt = await res.text();
-        if (txt) {
-          try {
-            const j = JSON.parse(txt);
-            detail = j?.error?.message || j?.message || txt;
-          } catch {
-            detail = txt;
-          }
-        }
-      } catch {}
-
-      throw new Error(
-        `POST (absolute) ${url} → ${res.status} ${res.statusText}${
-          detail ? `: ${detail}` : ""
-        }`
-      );
+      const { message, code, raw } = await this.parseGraphError(res);
+      throw new GraphHttpError(`POST (absolute) ${url}: ${message}`, res.status, code, raw);
     }
 
     if (res.status === 204) return undefined as unknown as T;
 
     const ct = res.headers.get("content-type") || "";
-    const txt = await res.text();
+    const txt = await res.text().catch(() => "");
     if (!txt) return undefined as unknown as T;
 
-    if (ct.includes("application/json")) {
-      return JSON.parse(txt) as T;
-    }
-
+    if (ct.includes("application/json")) return JSON.parse(txt) as T;
     return txt as unknown as T;
   }
-
 }
