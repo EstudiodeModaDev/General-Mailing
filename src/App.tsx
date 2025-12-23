@@ -118,9 +118,10 @@ function Header({ open, step }: { open: () => void, step: number }) {
             </div>
 
             <div className="min-w-0">
-              <h1 className="text-xl font-black text-slate-800 tracking-tight leading-none truncate">
-                Mailing
+              <h1 className="text-xl font-black tracking-tight leading-tight truncate">
+                <span className="gradient-text">Mailing</span>
               </h1>
+
               <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">
                 EDM Edition
               </span>
