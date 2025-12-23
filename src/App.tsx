@@ -1,7 +1,6 @@
 import React from 'react';
 import './App.css'
 import { AuthProvider, useAuth } from './auth/authProvider';
-import { AuthPage } from './components/AuthPage/AuthPage';
 import { GraphServicesProvider } from './Graph/GraphContext';
 import { Step1Import } from './components/Importation/Step1Import';
 import { Step2Designer } from './components/Design/Design';
@@ -22,47 +21,49 @@ const GROUP_ID = "3a138500-8cda-44cc-9e48-6adf35714fd5";
 
 
 function Shell() {
-  const { ready, account, signIn, signOut } = useAuth();
-  const [loadingAuth, setLoadingAuth] = React.useState(false);
+  const { ready, account, signIn } = useAuth();
   const isLogged = Boolean(account);
 
-  const { loading: checking, allowed } = useGroupGate(GROUP_ID);
-
-  const handleAuthClick = async () => {
-    if (!ready || loadingAuth) return;
-    setLoadingAuth(true);
-    try {
-      if (isLogged) await signOut();
-      else await signIn("popup");
-    } finally {
-      setLoadingAuth(false);
+  // 🔐 auto-login: apenas carga y no hay cuenta, redirige a Microsoft
+  React.useEffect(() => {
+    if (!ready) return;
+    if (!isLogged) {
+      // redirect no requiere click
+      signIn("redirect");
     }
-  };
+  }, [ready, isLogged, signIn]);
 
+  // Mientras no esté listo o aún no haya cuenta (porque está por redirigir / volviendo)
   if (!ready || !isLogged) {
     return (
       <div className="page layout">
-        <section className="page-view">
-          <AuthPage onCorporateLogin={handleAuthClick} />
-        </section>
+        <section className="page-view">Iniciando sesión…</section>
       </div>
     );
   }
 
-  // ya está logueado: valida grupo
+  // ✅ ya hay sesión: valida grupo
+  const { loading: checking, allowed } = useGroupGate(GROUP_ID);
+
   if (checking) {
-    return <div className="page layout"><section className="page-view">Validando acceso…</section></div>;
+    return (
+      <div className="page layout">
+        <section className="page-view">Validando acceso…</section>
+      </div>
+    );
   }
 
   if (!allowed) {
-    // 🔥 como pediste: no cargar nada
+    // como pediste: no cargar nada
     return null;
-    // o muestra algo:
-    // return <div className="page layout"><section className="page-view">No tienes acceso.</section></div>;
+    // o puedes hacer signOut() si quieres expulsarlo:
+    // signOut();
+    // return null;
   }
 
   return <LoggedApp />;
 }
+
 
 function Stepper({ step }: { step: number }) {
   const steps = [
